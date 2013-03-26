@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<script type="text/javascript">
+		
+			function createAudioContext() {
+				var context;
+				if(window.AudioContext) {
+					context = new AudioContext();
+				} else if(window.webkitAudioContext) {
+					context = new webkitAudioContext();
+				} else {
+					throw new Error(
+						"Web Audio API Not supported!"
+					);
+				}
+				return context;
+			}
+			
+			
+			function calculateFrequency(n) {
+				return 440 * Math.pow(2, n/12);
+			}
+			
+			function getSineWaveAmplitude(freq, t) {
+				return Math.sin(freq * 2 * t * Math.PI);
+			}
+
+			function TestAudioSynthesizer() {
+
+				var ctx = createAudioContext();
+				var sampleRate = ctx.sampleRate;
+				var sampleIndex = 0; // This is the sample number we will increment
+				var bufferSize = 1024; // This will be our buffer length
+				var inputChannels = 2;
+				var outputChannels = 2;
+
+				// Create a buffer creation node for javascript, we specify
+				// the buffer length, the number of input channels and the
+				// number of output channels
+				var node = ctx.createJavaScriptNode(bufferSize, inputChannels, outputChannels);
+
+				// We will play middle C
+				var freq = calculateFrequency(-9);
+
+				node.onaudioprocess = function(e) {
+
+					// Get the buffers for all of the output channels 
+					// and add them to an array, each buffer should be a
+					// Float32Array the same length as the buffer size
+					var channels = [];
+					for(var i = 0; i < outputChannels; ++i) {
+						channels.push(e.outputBuffer.getChannelData(i));
+					}
+					
+					// Loop the length of the buffer, each step is a
+					// sample, the associated time step is determined
+					// by the sample rate.
+					for(var i = 0; i < bufferSize; ++i) {
+						
+						// Divide the number of samples by the sample rate
+						// (the number of samples per second) to get the time
+						// in seconds.
+						var t = sampleIndex / sampleRate; 
+					
+						// Get the amplitude from our sine wave function
+						var amp = getSineWaveAmplitude(freq, t);
+
+						// Loop through the channels and add in the data
+						for(var j = 0; j < channels.length; ++j) {
+							channels[j][i] = amp;
+						}
+						sampleIndex ++
+					}
+				}
+
+				// These controls allow us to start and stop the sound
+				this.play = function() { node.connect(ctx.destination); };
+				this.stop = function() { node.disconnect(); };
+
+			}
+
+			var synth = new TestAudioSynthesizer();
+			synth.play();
+			setTimeout(function() {
+				synth.stop();
+			}, 2000);
+			
+		</script>
+	</head>
+</html>
