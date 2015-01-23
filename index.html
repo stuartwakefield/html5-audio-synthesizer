@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 	<head>
+		<meta charset="utf-8"/>
 		<script type="text/javascript">
 		
 			function createAudioContext() {
@@ -17,75 +18,147 @@
 				return context;
 			}
 			
-			
 			function calculateFrequency(n) {
 				return 440 * Math.pow(2, n/12);
 			}
 			
 			function getSineWaveAmplitude(freq, t) {
-				return Math.sin(freq * 2 * t * Math.PI);
+				return Math.sin(freq * t * 2 * Math.PI);
 			}
 
-			function TestAudioSynthesizer() {
+			function getSquareWaveAmplitude(freq, t) {
+				return (Math.round((freq * t) % 1) - 0.5) * 2;
+			}
 
-				var ctx = createAudioContext();
+			function getSawWaveAmplitude(freq, t) {
+				return ((freq * t) % 1 - 0.5) * 2;
+			}
+
+			function getReverseSawWaveAmplitude(freq, t) {
+				return ((freq - freq * t) % 1 - 0.5) * 2;
+			}
+
+			function getTriangleWaveAmplitude(freq, t) {
+				return Math.abs(((freq * t) % 1) - 0.5) * 4 - 1;
+			}
+
+			function getTanWaveAmplitude(freq, t) {
+				return Math.tan(freq * t * 2 * Math.PI);
+			}
+
+			function Synthesiser(ctx, fn) {
+
 				var sampleRate = ctx.sampleRate;
 				var sampleIndex = 0; // This is the sample number we will increment
 				var bufferSize = 1024; // This will be our buffer length
 				var inputChannels = 2;
 				var outputChannels = 2;
+				var duration = 2; // seconds
 
 				// Create a buffer creation node for javascript, we specify
 				// the buffer length, the number of input channels and the
 				// number of output channels
-				var node = ctx.createJavaScriptNode(bufferSize, inputChannels, outputChannels);
+				var buffer = ctx.createBuffer(inputChannels, duration * sampleRate, sampleRate);
+				//var node = ctx.createJavaScriptNode(bufferSize, inputChannels, outputChannels);
 
 				// We will play middle C
 				var freq = calculateFrequency(-9);
 
-				node.onaudioprocess = function(e) {
-
-					// Get the buffers for all of the output channels 
-					// and add them to an array, each buffer should be a
-					// Float32Array the same length as the buffer size
-					var channels = [];
-					for(var i = 0; i < outputChannels; ++i) {
-						channels.push(e.outputBuffer.getChannelData(i));
-					}
+				// Get the buffers for all of the output channels 
+				// and add them to an array, each buffer should be a
+				// Float32Array the same length as the buffer size
+				var channels = [];
+				for(var i = 0; i < outputChannels; ++i) {
+					channels.push(buffer.getChannelData(i));
+				}
+				
+				// Loop the length of the buffer, each step is a
+				// sample, the associated time step is determined
+				// by the sample rate.
+				for(var i = 0; i < duration * sampleRate; ++i) {
 					
-					// Loop the length of the buffer, each step is a
-					// sample, the associated time step is determined
-					// by the sample rate.
-					for(var i = 0; i < bufferSize; ++i) {
-						
-						// Divide the number of samples by the sample rate
-						// (the number of samples per second) to get the time
-						// in seconds.
-						var t = sampleIndex / sampleRate; 
-					
-						// Get the amplitude from our sine wave function
-						var amp = getSineWaveAmplitude(freq, t);
+					// Divide the number of samples by the sample rate
+					// (the number of samples per second) to get the time
+					// in seconds.
+					var t = sampleIndex / sampleRate; 
+				
+					// Get the amplitude from our sine wave function
+					var amp = fn(freq, t);
 
-						// Loop through the channels and add in the data
-						for(var j = 0; j < channels.length; ++j) {
-							channels[j][i] = amp;
-						}
-						sampleIndex ++
+					// Loop through the channels and add in the data
+					for(var j = 0; j < channels.length; ++j) {
+						channels[j][i] = amp;
 					}
+					sampleIndex ++;
 				}
 
+				var node = ctx.createBufferSource();
+				node.buffer = buffer;
+				node.connect(ctx.destination);
+				
 				// These controls allow us to start and stop the sound
-				this.play = function() { node.connect(ctx.destination); };
-				this.stop = function() { node.disconnect(); };
+				this.on = function() { node.start(); };
+				this.off = function() { node.stop(); };
 
 			}
 
-			var synth = new TestAudioSynthesizer();
-			synth.play();
-			setTimeout(function() {
-				synth.stop();
-			}, 2000);
+			var ctx = createAudioContext();
 			
 		</script>
 	</head>
+	<body>
+		<canvas data-wave-type="sine"></canvas>
+		<canvas data-wave-type="saw"></canvas>
+		<canvas data-wave-type="square"></canvas>
+		<canvas data-wave-type="triangle"></canvas>
+		<script>
+
+			var fns = {
+				sine: getSineWaveAmplitude,
+				saw: getSawWaveAmplitude,
+				square: getSquareWaveAmplitude,
+				triangle: getTriangleWaveAmplitude
+			};
+
+			function plotWaveFunction(ctx, x, y, w, h, fn) {
+				ctx.beginPath();
+				ctx.moveTo(x, y + h/2 - h/2 * fn(2, 0));
+				for (var i = 1; i < w; ++i) {
+					ctx.lineTo(x+i, y + h/2 - h/2 * fn(2, i/w))
+				}
+				ctx.stroke();
+			}
+
+			var cvs = document.querySelectorAll('canvas');
+			var l = cvs.length;
+			var synths = [];
+
+			for (var i = 0; i < l; ++i) {
+				var ctx = cvs[i].getContext('2d');
+				var type = cvs[i].dataset.waveType;
+				var width = 200;
+				var height = 100;
+				var gutter = 20;
+
+				cvs.width = width;
+				cvs.height = height;
+
+				plotWaveFunction(ctx, gutter, gutter, width - 2*gutter, height - 2*gutter, fns[type]);
+				
+				cvs[i].addEventListener('mousedown', (function(n, fn) {
+					return function() {
+						synths[n] = new Synthesiser(ctx, fn);
+						synths[n].on()
+					};
+				}) (i, fns[type]));
+
+				cvs[i].addEventListener('mouseup', (function(n) {
+					return function() {
+						synths[n].off();
+					};
+				}) (i));
+			}
+			
+		</script>
+	</body>
 </html>
